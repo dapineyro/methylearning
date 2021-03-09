@@ -1,0 +1,25 @@
+Package: methylearning
+Title: Machine Learning Framework For Methylation Data
+Version: 1.0.1
+Authors@R: person("David", "Piñeyro", email = "davidpvva@hotmail.com", role = c("aut", "cre"))
+Author: David Piñeyro [aut, cre]
+Maintainer: David Piñeyro <davidpvva@hotmail.com>
+Description: This package provides convenient objects and functions to perform 
+  feature selection, classification and evaluation, starting from methylation 
+  arrays normalized beta values or bisulfite sequencing methylation ratios.
+Depends: R (>= 3.4.3)
+biocViews:
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 6.0.1
+Collate: 'cls_methods.R' 'fs_methods.R' 'ml_data.R'
+        'get_GEO_methylarray.R' 'ml_cls.R' 'ml_fs.R'
+Imports: Biobase, Boruta, caret, class, C50, FSelector, ggplot2,
+        glmnet, grid, kernlab, limma, MASS, Matrix, minfi, mRMRe, nnet,
+        parallel, plyr, plotROC, randomForest, VennDiagram
+Suggests: data.table, e1071, GEOquery, knitr, rmarkdown, shiny,
+        shinythemes, xtable
+VignetteBuilder: knitr
+NeedsCompilation: no
+Packaged: 2018-07-16 15:31:39 UTC; david

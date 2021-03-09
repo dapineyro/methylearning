@@ -1,0 +1,226 @@
+---
+title: "methylearning"
+subtitle: "Machine Learning Framework for DNA Methylation Data"
+author: "David Piñeyro"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+bibliography: ml_bib.bib
+vignette: >
+  %\VignetteIndexEntry{"methylearning"}
+  %\VignetteEngine{knitr::rmarkdown}
+  \usepackage[utf8]{inputenc}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# Introduction
+
+The **methylearning** package is designed to provide a comprehensive yet easy-to-use framework to test several feature selection and classification methods. This package was primarily designed for Illumina DNA methylation arrays and Whole Genome Bisulfite Sequencing data, but any dataset composed of continuos values ranged between 0 and 1 should work. **VERY IMPORTANT:** no missing values (aka NAs) are allowed, so preprocess your input data to remove samples with missing values, or impute them.
+
+# Installation
+
+If you are reading this vignette, you have probably already downloaded `methylearning` package. Anyways, to download `methylearning` package from its public [Bitbucket](https://bitbucket.org/product) repository use: `git clone https://bitbucket.org/dpv-dev/methylearning.git`. There is also a companion Shiny app worth to try out. To download it use: `git clone https://bitbucket.org/dpv-dev/methylearning_app.git`.
+
+This package is created for `r version$version.string` or above. It make use of many [Bioconductor](http://bioconductor.org/) and [CRAN](https://cran.r-project.org/) packages. Make sure that you have upgraded Bioconductor to newest version (3.6).
+
+```{r Bioconductor, eval = FALSE}
+## try http:// if https:// URLs are not supported
+source("https://bioconductor.org/biocLite.R")
+biocLite()
+```
+
+Note that for a correct Bioconductor installation, additional system packages may be required. For instance, in Ubuntu 17.10, at least the following Ubuntu packages should be installed before Bioconductor installation (root access required).
+
+```
+sudo apt-get update
+sudo apt-get upgrade
+sudo apt-get install libcurl4-openssl-dev libssl-dev libxml2-dev
+```
+
+After you have R and Bioconductor installed properly, you can install `methylearning` using `devtools::install()` function:
+
+```{r installation, eval = FALSE}
+# Set one level up methylearning folder.
+setwd("path/to/folder/containing/methylearning/folder")
+devtools::install("methylearning")
+```
+
+Some errors may occur during the installation. Most of them may be due to errors loading recursively depending R packages and/or required system packages. If you got an error, please read carefully the error log which usually already suggests some solution. In Ubuntu 17.10, the package requires that Java was correctly installed and configured to work with R and also requires the `mysqlclient library` to install `RMySQL` package. To do so, in the command shell, type (it requires root access):
+
+```
+sudo apt-get update
+sudo apt-get upgrade
+# install and configure Java.
+sudo apt-get install default-jre default-jdk
+sudo R CMD javareconf
+# install MySQL server.
+sudo apt-get install libmariadbclient-dev
+```
+
+After installation, load the package using:
+
+```{r loading}
+library(methylearning)
+```
+
+`methylearning` package make use of many other packages. It is possible that you reach your maximum number of allowed DLLs in your `R` session (i.e. more than 100). If you experience any error realated to a failed loaded package please, start `methylearning` from a clean `R` session. If you still experience problems, type the code shown below in your command shell (Linux or similar OS) to increase your DLL limit.
+
+```
+# Create an .Renviron in your home directory, which contains the 
+# new value for the R_MAX_NUM_DLLS variable (it will be increased to 150).
+echo "R_MAX_NUM_DLLS=150" > ~/.Renviron
+```
+
+# Methylation array data workflow demo
+
+## Load input data
+
+This workflow makes use of data from [@Gabriel2015]. This dataset consists of 52 methylation profiles from childhood Acute lymphoblastic leukemia (ALL) patients. Whith the aim to predict the outcome, the samples were labeled as "long term remission" and " went on to relapse". Illumina &reg; HumanMethylation 450k Beadchip data can be downloaded from GEO using the following accession number: [GSE69229](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE69229). [GEOquery](https://bioconductor.org/packages/release/bioc/html/GEOquery.html) and [Biobase](http://bioconductor.org/packages/release/bioc/html/Biobase.html) packages can be used to download the data. Once data is downloaded and an `ExpressionSet` is generated, the function `get_GEO_methylarray` can be used to convert the `ExpressionSet` object into an `ml_data` object, the base object used by `methylearning` package. To speed up computations, only a fragment of the total data will be used in this workflow (500 randomly selected features). Note that the argument `target_name` of `get_GEO_methylarray` function should be the name of the column to be used as class labels, from the `phenoData` `AnnotatedDataFrame`. This `AnnotatedDataFrame` should be contained in the object returned by `GEOquery::getGEO` and may require manual inspection to get the column name.
+
+```{r loading_dataset, eval = FALSE}
+if (require(GEOquery) &
+    require(Biobase)) {
+  # Load methylation array experiment from GEO.
+  gse <- getGEO("GSE69229", getGPL = FALSE)
+}
+# Create an ml_data object. The column with the sample labels to be used as
+# classification labels must be specified. In this particular dataset, this
+# column is named 'outcome:ch1' in 'phenoData' AnnotatedDataFrame.
+set.seed(1234)
+ml <- get_GEO_methylarray(gse, target_name = "outcome:ch1", 
+                          random_filter = 1000)
+summary(ml)
+```
+
+The above code can take a while and consume quite some internet bandwidth, for this reason an `R data.frame` object was prepared. It contains the same data generated by `getGEO` function, i.e the 52 samples as rows and the 1000 randomly selected features as columns. In addition, an extra column with the class labels was added. To load and create an `ml_data` object from it, use the following code:
+
+```{r load_data_real}
+# Load the object.
+load("demo_data/demo_1.RData")
+ml <- ml_data(df, labels_column = dim(df)[2])
+summary(ml)
+```
+
+Data can be splitted into training (discovery) and test (evaluation) datasets. Although this is only advisable for datasets with many samples, it is performed here for demonstrating purposes.
+
+```{r data_split}
+# Splitting data to 2/3 for training and 1/3 for test (this is by default).
+set.seed(1234)
+ml_s <- split_data(ml, splitting = 2/3)
+summary(ml_s)
+```
+
+## Feature selection
+
+Several feature selection methods can be applied to an `ml_data` object. To
+list all the currenty available methods use:
+
+```{r list_fs_methods}
+# Print all the feature selection methods currently implemented. To
+# return a list with the method names, set 'verbose = FALSE' (default).
+available_fs_methods(verbose = TRUE)
+```
+
+**VERY IMPORTANT:** most of those methods are very computational intensive and can take very long to compute. Use built-in parallelization to speed up computations.
+
+```{r feature_selection}
+set.seed(1234)
+fs_methods_to_use <- c("random_fs", "anova_fs", "limma_fs", 
+                       "information_gain_fs", "boruta_fs")
+ml_f <- ml_fs(ml_s, fs_methods = fs_methods_to_use, selection_size = 20, 
+              cores = 3)
+```
+
+In this case, the following feature selection methods: `r fs_methods_to_use` were applied, using 3 cores for parallel computation, when possible. Each method reports as much as `selection_size` features. The result is an `ml_fs` class object, which inherits from `ml_data` class object. By default, feature selection is made from all dataset, regardless data was previously partitioned. **NOTE:** use `fs_methods = all`, `fs_methods = wrappers` or `fs_methods = filters` as shortcuts, for more information type `?ml_fs`.
+
+The feature selection results can be explored with some of `ml_fs`methods.
+
+```{r fs_exploration}
+# Summary of the ml_f object.
+summary(ml_f)
+# Print selection methods used.
+selection_methods(ml_f)
+# Print all the feature selections obtained.
+selection_results(ml_f)
+# Plot a Venn diagram for up to 5 feature selection methods to see the overlap.
+meths <- c("anova_fs", "limma_fs")
+fill <- c("red", "blue")
+plot_venn_fs(ml_f, fs_methods = meths, fill = fill, category = meths)
+meths <- c("anova_fs", "limma_fs", "boruta_fs")
+fill <- c("red", "blue", "orange")
+plot_venn_fs(ml_f, fs_methods = meths, fill = fill, category = meths)
+# Create a data.frame with feature selection results.
+fs_results <- selection_df(ml_f)
+fs_results
+# Plot the computation time elapsed in each feature selection.
+plot_fs_time(ml_f)
+```
+
+## Classification
+
+Once feature selection is performed, several classification algorithms can be applied using `ml_cls` function, which returns an `ml_cls` object.
+
+```{r classification}
+# By default, all implemented classification methods will be applied to all 
+# feature sets. We can select specific methods using cls_methods and fs_methods
+# parameters. Also by default, 10-fold 3x repeated cross-validation is 
+# implemented to select best models based on Kappa statistic. As data was
+# previously partitioned, test evaluation is also performed when 
+# test_eval = TRUE. Argument 'cores' is set to 1 to keep memory usage low.
+set.seed(1234)
+cls_methods_to_use <- c("knn", "svmRadial", "rf", "lda")
+ml_c <- ml_cls(ml_f, cls_methods = cls_methods_to_use, test_eval = TRUE, 
+               cores = 1)
+```
+
+In this case, the following classification methods were applied: `r cls_methods_to_use`, all of them applied to each feature selection, performing a final test evaluation (as data was previously partitioned into training and test data) and using 3 cores for parallel processing, when possible. By default, a cross-validation method was applied to training data.
+
+The classification performance and the effect of feature selection method used can be evaluated using several implemented methods.
+
+```{r cls_evaluation}
+# Classification summary.
+summary(ml_c)
+# Get training results.
+print(get_training_results(ml_c))
+# Get test results.
+print(get_test_results(ml_c))
+# Get best model based on training data validation.
+get_best_model(ml_c)
+# Get best feature set based on training data validation.
+get_best_feature_set(ml_c)
+# Get best model based on test data evaluation.
+get_best_model_test(ml_c)
+# Get best feature set based on test data evaluation.
+get_best_feature_set_test(ml_c)
+# Get the caret::confusionMatrix for selected prediction on test data.
+get_confusionMatrix_test(ml_c, fs_method = "boruta_fs", cls_method = "knn")
+# Plot mean accuracy (with sd) for the best tune from training data validation.
+plot(ml_c)
+# Plot mean Kappa (with sd) for the best tune from training data validation.
+plot(ml_c, mode = "Kappa")
+# Plot ROC curves of selected best models from training data validation.
+plot(ml_c, mode = "ROC", fs_ROC = "random_fs", cls_ROC = "rf")
+plot(ml_c, mode = "ROC", fs_ROC = "anova_fs", cls_ROC = "knn")
+plot(ml_c, mode = "ROC", fs_ROC = "boruta_fs", cls_ROC = "lda")
+plot(ml_c, mode = "ROC", fs_ROC = "information_gain_fs", cls_ROC = "svmRadial")
+# Plot best models accuracy on test data evaluation.
+plot_test(ml_c, mode = "Accuracy")
+# Plot best models Kappa on test data evaluation.
+plot_test(ml_c, mode = "Kappa")
+# Plot computation time (classification step only).
+plot(ml_c, mode = "Time", time_mode = "cls_only")
+# Plot total computation time.
+plot(ml_c, mode = "Time")
+```
+
+```{r sessionInfo}
+sessionInfo()
+```
+
+# References
+
